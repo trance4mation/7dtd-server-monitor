@@ -1,0 +1,21 @@
+version: "3"
+services:
+  7dtd-server-monitor:
+    build: .
+    environment:
+      - CONTAINER_NAME=${CONTAINER_NAME}
+      - HASS_URL=${HASS_URL}
+      - HASS_TOKEN=${HASS_TOKEN}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - GAME_SERVER_HOST=${GAME_SERVER_HOST}
+      - GAME_SERVER_API_PORT=${GAME_SERVER_API_PORT}
+      - GAME_SERVER_API_TOKEN_NAME=${GAME_SERVER_API_TOKEN_NAME}
+      - GAME_SERVER_API_SECRET=${GAME_SERVER_API_SECRET}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./player_state.json:/app/player_state.json
+    restart: unless-stopped
+    network_mode: host
+    container_name: 7dtd-server-monitor
+    tty: true
