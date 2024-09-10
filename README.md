@@ -54,7 +54,7 @@ To deploy using Docker:
 
 1. Build the Docker image:
 ```
-docker build -t 7dtd-monitor .
+docker-compose build
 ```
 
 2. Run the container:
