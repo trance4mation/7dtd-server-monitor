@@ -1,6 +1,5 @@
 import { sendDiscordNotification } from './discord-connector';
 import logger from './logger';
-import { hassAPI } from './hass-connector';
 
 class GameInfo {
   bloodMoonDay: number | null = null;
@@ -34,7 +33,8 @@ export class ServerConnector {
 
   constructor(connectionInfo: ServerConnectionInfo = {}) {
     if (!connectionInfo.host || !connectionInfo.port || !connectionInfo.apiTokenName || !connectionInfo.apiSecret) {
-      throw new Error('Missing required server connection parameters: ' + JSON.stringify(connectionInfo, null, 2));
+      logger.error('ServerConnector> Missing server connection parameters: ' + JSON.stringify(connectionInfo, null, 2));
+      throw new Error('Missing server connection parameters.');
     }
     this.host = connectionInfo.host;
     this.port = connectionInfo.port;
@@ -44,7 +44,7 @@ export class ServerConnector {
   }
 
   async sendCommand(command: string): Promise<any> {
-    logger.info(`Sending '${command}' command...`);
+    logger.debug(`ServerConnector> Sending '${command}' command...`);
     try {
       const url = `http://${this.host}:${this.port}/api/command`;
       const headers = {
@@ -60,83 +60,91 @@ export class ServerConnector {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        logger.error(`HTTP error! status: ${response.status}`);
       }
 
       const jsonResponse = await response.json();
-      logger.debug('Full response:\n' + JSON.stringify(jsonResponse, null, 2));
+      logger.debug('ServerConnector> Full response:\n' + JSON.stringify(jsonResponse, null, 2));
       const result = jsonResponse?.data?.result;
       return result;
     } catch (error) {
       logger.error('Error sending request:', error);
-      throw error;
+      return undefined;
     }
   }
 
-  async getActivePlayers() {
-    const response = await this.sendCommand('lp');
-    const playerRegex = /\d+\. id=\d+, (.+?),/g;
-    const players = [...response.matchAll(playerRegex)].map(match => match[1]);
-    logger.info(`Parsed players: ${JSON.stringify(players)}`);
-    this.gameInfo.players = players;
-    return players;
+  async getServerStatus(): Promise<void> {
+    const response = await this.sendCommand('status');
+    if (!response) return;
+    logger.info(`ServerConnector> Server status: ${response}`);
   }
 
-  async getGameStats() {
+  async getActivePlayers(): Promise<void> {
+    const response = await this.sendCommand('lp');
+    if (!response) return;
+    const playerRegex = /\d+\. id=\d+, (.+?),/g;
+    const players = [...response.matchAll(playerRegex)].map(match => match[1]);
+    logger.info(`ServerConnector> Parsed players: ${JSON.stringify(players)}`);
+    this.gameInfo.players = players;
+  }
+
+  async getGameStats(): Promise<void> {
     const response = await this.sendCommand('ggs');
+    if (!response) return;
     const bloodMoonDayMatch = response.match(/GameStat\.BloodMoonDay\s*=\s*(\d+)/);
     const bloodMoonWarningMatch = response.match(/GameStat\.BloodMoonWarning\s*=\s*(\d+)/);
 
     const bloodMoonDay = bloodMoonDayMatch ? parseInt(bloodMoonDayMatch[1], 10) : null;
     const bloodMoonWarning = bloodMoonWarningMatch ? parseInt(bloodMoonWarningMatch[1], 10) : null;
 
-    logger.debug(`Parsed blood moon day: ${bloodMoonDay}, warning: ${bloodMoonWarning}`);
+    logger.debug(`ServerConnector> Parsed blood moon day: ${bloodMoonDay}, warning: ${bloodMoonWarning}`);
     this.gameInfo.bloodMoonDay = bloodMoonDay;
     this.gameInfo.bloodMoonWarning = bloodMoonWarning;
   }
 
-  async getCurrentTime() {
+  async getCurrentTime(): Promise<boolean> {
     const response = await this.sendCommand('gt');
+    if (!response) return false;
     const timeMatch = response.match(/Day (\d+), (\d+):(\d+)/);
 
     if (timeMatch) {
       const currentDay = parseInt(timeMatch[1], 10);
       const currentTime = parseInt(timeMatch[2], 10);
-      logger.debug(`Parsed current day: ${currentDay}, time: ${currentTime}`);
+      logger.debug(`ServerConnector> Parsed current day: ${currentDay}, time: ${currentTime}`);
       this.gameInfo.currentDay = currentDay;
       this.gameInfo.currentTime = currentTime;
-    } else {
-      logger.error('Unable to parse time from response:', response);
+      return true;
     }
+    logger.error('ServerConnector> Unable to parse time from response:', response);
+    return false;
   }
 
-  async checkBloodMoonWarning() {
-    logger.info('Checking blood moon warning...');
+  async checkBloodMoonWarning(): Promise<void> {
+    logger.info('ServerConnector> Checking blood moon warning...');
     await this.getGameStats();
     await this.getCurrentTime();
 
     if (this.gameInfo.isReady) {
       const { bloodMoonDay, currentDay, currentTime, bloodMoonWarning } = this.gameInfo;
-      logger.debug(`Checking blood moon: day ${bloodMoonDay}, current day ${currentDay}, time ${currentTime}, warning ${bloodMoonWarning}`);
+      logger.debug(`ServerConnector> Checking blood moon: day ${bloodMoonDay}, current day ${currentDay}, time ${currentTime}, warning ${bloodMoonWarning}`);
       if (bloodMoonDay !== null && currentDay !== null && currentTime !== null && bloodMoonWarning !== null) {
         if (bloodMoonDay === currentDay
           && currentTime >= bloodMoonWarning
           && this.lastWarningDay !== currentDay
           && this.gameInfo.players.length > 0) {
-          logger.info('Blood Moon is imminent!');
+          logger.info('ServerConnector> Blood Moon is imminent!');
           sendDiscordNotification('🌑 Blood Moon is imminent! 😱');
           this.lastWarningDay = currentDay;
         }
       }
     } else {
-      logger.warn('Game info is not ready yet');
+      logger.warn('ServerConnector> Game info is not ready yet');
     }
   }
 
-  async run() {
+  async getGameData() {
     await this.getActivePlayers();
     await this.checkBloodMoonWarning();
-    await hassAPI.updatePlayerInfo(this.gameInfo.players);
-    logger.info('Game info:\n' + JSON.stringify(this.gameInfo, null, 2));
+    logger.debug('ServerConnector> Game info:\n' + JSON.stringify(this.gameInfo, null, 2));
   }
 }

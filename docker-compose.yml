@@ -15,7 +15,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./player_state.json:/app/player_state.json
-    restart: unless-stopped
+    restart: no
     network_mode: host
     container_name: 7dtd-server-monitor
     tty: true

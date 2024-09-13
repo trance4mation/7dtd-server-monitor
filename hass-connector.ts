@@ -10,7 +10,7 @@ class HomeAssistantAPI {
     this.baseUrl = process.env.HASS_URL || '';
     this.token = process.env.HASS_TOKEN || '';
     if (!this.token) {
-      throw new Error("HASS_TOKEN environment variable is not set");
+      throw new Error("HASSConnector> HASS_TOKEN environment variable is not set");
     }
 
     this.headers = {
@@ -39,13 +39,13 @@ class HomeAssistantAPI {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        logger.error(`HTTP error! status: ${response.status}`);
+        return;
       }
 
-      logger.info(`Updated player info in HASS: ${players.length} players: ${players.join(', ')}`);
+      logger.info(`HASSConnector> Updated player info: ${players.length} players: ${players.join(', ')}`);
     } catch (error) {
-      logger.error('Error updating player info in HASS:', error);
-      throw error;
+      logger.error('HASSConnector> Error updating player info in HASS:', error);
     }
   }
 }

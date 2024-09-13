@@ -1,22 +1,28 @@
 import Docker from 'dockerode';
 import { EventEmitter } from 'events';
 import logger from './logger';
+import { sendDiscordNotification } from './discord-connector';
 
 const eventEmitter = new EventEmitter();
+const maxReconnectAttempts = 5;
 
-export async function readContainerLog(containerId: string) {
-  logger.info(`Starting reading log from the container ${containerId}`);
+export class DockerConnector {
+  private docker: Docker;
+  private container: Docker.Container;
+  private containerId: string;
+  private reconnectInterval = 5000; // Initial reconnect interval in milliseconds
+  private reconnectAttempts = 0;
+  private logsStream?: NodeJS.ReadableStream;
 
-  const docker = new Docker();
-  const container = docker.getContainer(containerId);
+  constructor(containerId: string) {
+    this.docker = new Docker();
+    this.containerId = containerId;
+    this.container = this.docker.getContainer(this.containerId);
+  }
 
-  let reconnectInterval = 3000; // Initial reconnect interval in milliseconds
-  let reconnectAttempts = 0;
-  const maxReconnectAttempts = 5;
-
-  const connect = async () => {
+  private connect = async () => {
     try {
-      const logsStream = await container.logs({
+      this.logsStream = await this.container.logs({
         follow: true,
         stdout: true,
         stderr: true,
@@ -24,57 +30,73 @@ export async function readContainerLog(containerId: string) {
         since: Math.floor(Date.now() / 1000),
       });
 
-      logsStream.on('data', (chunk: any) => {
+      this.logsStream.on('data', (chunk: any) => {
         const logLine = chunk.toString();
-        processLogLine(logLine);
+        DockerConnector.processLogLine(logLine);
       });
 
-      logsStream.on('end', () => {
-        console.log('Log stream ended');
-        reconnect();
+      this.logsStream.on('end', () => {
+        logger.info('DockerConnector> Log stream ended');
+        this.reconnect();
       });
 
-      logsStream.on('error', (err: any) => {
-        logger.error('Error reading log stream:', err);
-        reconnect();
+      this.logsStream.on('error', (err: any) => {
+        logger.error('DockerConnector> Error reading log stream:', err);
+        this.reconnect();
       });
 
-      reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+      logger.info('DockerConnector> Connected to the container');
+
     } catch (error) {
-      console.error('Error connecting to container:', error);
-      reconnect();
+      console.error('DockerConnector> Error connecting to container:', error);
+      this.reconnect();
     }
-  };
+  }
 
-  const reconnect = () => {
-    if (reconnectAttempts < maxReconnectAttempts) {
-      reconnectAttempts++;
-      const reconnectDelay = reconnectInterval * Math.pow(2, reconnectAttempts);
-      console.log(`Reconnecting in ${reconnectDelay} milliseconds...`);
-      setTimeout(connect, reconnectDelay);
+  private reconnect = async (): Promise<void> => {
+    if (this.reconnectAttempts < maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      const reconnectDelay = this.reconnectInterval * this.reconnectAttempts;
+      logger.info(`DockerConnector> Reconnecting in ${reconnectDelay} milliseconds...`);
+      setTimeout(this.connect, reconnectDelay);
     } else {
-      console.error('Max reconnect attempts reached. Giving up.');
+      logger.error('DockerConnector> Max reconnect attempts reached. Giving up.');
+      await sendDiscordNotification('🛑 7DTD Server Monitor stopped with an error');
+      throw new Error(`DockerConnector> Cannot connect to the container ${this.containerId}`);
     }
   };
 
-  connect();
+  async readLog() {
+    await this.connect();
+  }
+
+  private static processLogLine = (logLine: string) => {
+    const playerJoinedRegex = /Player '(.+)' joined the game/;
+    const playerLeftRegex = /Player '(.+)' left the game/;
+
+    const playerJoinedMatch = logLine.match(playerJoinedRegex);
+    if (playerJoinedMatch) {
+      const playerName = playerJoinedMatch[1];
+      eventEmitter.emit('playerJoin', playerName);
+    }
+
+    const playerLeftMatch = logLine.match(playerLeftRegex);
+    if (playerLeftMatch) {
+      const playerName = playerLeftMatch[1];
+      eventEmitter.emit('playerLeave', playerName);
+    }
+  };
+
+  async stop() {
+    if (this.logsStream) {
+      if (this.logsStream instanceof ReadableStream) {
+        await this.logsStream.cancel();
+      }
+      this.logsStream = undefined;
+    }
+    this.reconnectAttempts = 0;
+    logger.info('DockerConnector> Disconnected from the container');
+  }
 }
-
-const processLogLine = (logLine: string) => {
-  const playerJoinedRegex = /Player '(.+)' joined the game/;
-  const playerLeftRegex = /Player '(.+)' left the game/;
-
-  const playerJoinedMatch = logLine.match(playerJoinedRegex);
-  if (playerJoinedMatch) {
-    const playerName = playerJoinedMatch[1];
-    eventEmitter.emit('playerJoin', playerName);
-  }
-
-  const playerLeftMatch = logLine.match(playerLeftRegex);
-  if (playerLeftMatch) {
-    const playerName = playerLeftMatch[1];
-    eventEmitter.emit('playerLeave', playerName);
-  }
-};
 
 export { eventEmitter };
