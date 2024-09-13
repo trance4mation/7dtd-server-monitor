@@ -30,6 +30,7 @@ export class ServerConnector {
   private apiTokenName: string;
   private apiSecret: string;
   private lastWarningDay: number | null = null;
+  private timer?: Timer;
 
   constructor(connectionInfo: ServerConnectionInfo = {}) {
     if (!connectionInfo.host || !connectionInfo.port || !connectionInfo.apiTokenName || !connectionInfo.apiSecret) {
@@ -84,7 +85,7 @@ export class ServerConnector {
     if (!response) return;
     const playerRegex = /\d+\. id=\d+, (.+?),/g;
     const players = [...response.matchAll(playerRegex)].map(match => match[1]);
-    logger.info(`ServerConnector> Parsed players: ${JSON.stringify(players)}`);
+    logger.debug(`ServerConnector> Parsed players: ${JSON.stringify(players)}`);
     this.gameInfo.players = players;
   }
 
@@ -120,7 +121,7 @@ export class ServerConnector {
   }
 
   async checkBloodMoonWarning(): Promise<void> {
-    logger.info('ServerConnector> Checking blood moon warning...');
+    logger.debug('ServerConnector> Checking blood moon warning...');
     await this.getGameStats();
     await this.getCurrentTime();
 
@@ -142,9 +143,39 @@ export class ServerConnector {
     }
   }
 
-  async getGameData() {
+  startBloodmoonCheck() {
+    if (this.timer) return
+    this.timer = setInterval(async () => {
+      await this.getActivePlayers();
+      if (this.gameInfo.players.length > 0) {
+        this.checkBloodMoonWarning();
+      }
+    }, 60000); // every minute
+  }
+
+  stopBloodmoonCheck() {
+    if (!this.timer) return
+    clearInterval(this.timer);
+  }
+
+  async getGameData(reportActivePlayers: boolean = false) {
     await this.getActivePlayers();
+    reportActivePlayers && this.reportActivePlayers();
     await this.checkBloodMoonWarning();
     logger.debug('ServerConnector> Game info:\n' + JSON.stringify(this.gameInfo, null, 2));
+  }
+
+  private reportActivePlayers = () => {
+    if (this.gameInfo.players.length > 0) {
+      let message: string;
+      if (this.gameInfo.players.length === 0) {
+        message = "No players online.";
+      } else if (this.gameInfo.players.length === 1) {
+        message = `1 player is online: ${this.gameInfo.players[0]}`;
+      } else {
+        message = `${this.gameInfo.players.length} players are online: ${this.gameInfo.players.join(', ')}`;
+      }
+      sendDiscordNotification(message);
+    }
   }
 }

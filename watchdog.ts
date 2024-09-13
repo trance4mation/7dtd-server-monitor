@@ -1,15 +1,13 @@
-import { EventEmitter } from 'events';
 import { ServerConnector } from './server-connector';
 import logger from './logger';
-
-const eventEmitter = new EventEmitter();
+import eventEmitter from './eventEmitter';
 
 export class Watchdog {
   private timer?: Timer;
   private interval: number;
   private serverConnector: ServerConnector;
 
-  constructor(serverConnector: ServerConnector, interval: number = 3000) {
+  constructor(serverConnector: ServerConnector, interval: number = 5000) {
     this.serverConnector = serverConnector;
     this.interval = interval;
   }
@@ -25,12 +23,15 @@ export class Watchdog {
   }
 
   private checkServerConnection = async () => {
+    logger.debug('Watchdog> Checking server connection...');
     try {
       const isValidTime = await this.serverConnector.getCurrentTime();
       if (isValidTime) {
+        logger.debug('Watchdog> Server connection is valid');
         eventEmitter.emit('connected');
       }
     } catch (error) {
+      logger.error('Watchdog> Server connection is invalid');
       eventEmitter.emit('disconnected');
     }
   }

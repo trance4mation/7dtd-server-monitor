@@ -1,17 +1,17 @@
 export enum PlayerStatus {
   Joined = 'Joined',
   Left = 'Left',
-  Killed = 'Killed'
+  Died = 'Died'
 }
 
 export enum PlayerLogStatus {
   Joined = 'joined the game',
   Left = 'left the game',
-  Killed = 'was killed'
+  Died = 'died'
 }
 
 export const DiscordStatus = {
   Joined: 'joined the game 🤩',
   Left: 'left the game 😳',
-  Killed: 'was killed 💀'
+  Died: 'died 💀'
 }

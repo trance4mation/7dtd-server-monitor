@@ -1,9 +1,8 @@
 import Docker from 'dockerode';
-import { EventEmitter } from 'events';
+import eventEmitter from './eventEmitter';
 import logger from './logger';
 import { sendDiscordNotification } from './discord-connector';
 
-const eventEmitter = new EventEmitter();
 const maxReconnectAttempts = 5;
 
 export class DockerConnector {
@@ -21,6 +20,7 @@ export class DockerConnector {
   }
 
   private connect = async () => {
+    logger.debug('DockerConnector> Connecting to the container...');
     try {
       this.logsStream = await this.container.logs({
         follow: true,
@@ -48,7 +48,7 @@ export class DockerConnector {
       logger.info('DockerConnector> Connected to the container');
 
     } catch (error) {
-      console.error('DockerConnector> Error connecting to container:', error);
+      logger.error('DockerConnector> Error connecting to container:', error);
       this.reconnect();
     }
   }
@@ -73,6 +73,7 @@ export class DockerConnector {
   private static processLogLine = (logLine: string) => {
     const playerJoinedRegex = /Player '(.+)' joined the game/;
     const playerLeftRegex = /Player '(.+)' left the game/;
+    const playerDiedRegex = /Player '(.+)' died/;
 
     const playerJoinedMatch = logLine.match(playerJoinedRegex);
     if (playerJoinedMatch) {
@@ -84,6 +85,12 @@ export class DockerConnector {
     if (playerLeftMatch) {
       const playerName = playerLeftMatch[1];
       eventEmitter.emit('playerLeave', playerName);
+    }
+
+    const playerDiedMatch = logLine.match(playerDiedRegex);
+    if (playerDiedMatch) {
+      const playerName = playerDiedMatch[1];
+      eventEmitter.emit('playerDied', playerName);
     }
   };
 

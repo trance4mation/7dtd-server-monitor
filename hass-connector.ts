@@ -43,7 +43,7 @@ class HomeAssistantAPI {
         return;
       }
 
-      logger.info(`HASSConnector> Updated player info: ${players.length} players: ${players.join(', ')}`);
+      logger.debug(`HASSConnector> Updated player info: ${players.length} players: ${players.join(', ')}`);
     } catch (error) {
       logger.error('HASSConnector> Error updating player info in HASS:', error);
     }

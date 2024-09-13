@@ -1,10 +1,12 @@
 import { ServerConnector } from './server-connector';
-import { DockerConnector, eventEmitter } from './docker-connector';
+import { DockerConnector } from './docker-connector';
 import { Watchdog } from './watchdog';
 import { sendDiscordNotification } from './discord-connector';
 import { hassAPI } from './hass-connector';
 import { PlayerStatus, PlayerLogStatus, DiscordStatus } from './const';
 import logger from './logger';
+import eventEmitter from './eventEmitter';
+import { version } from './version.json';
 
 const containerId = '7dtdserver';
 const serverHost = process.env.GAME_SERVER_HOST;
@@ -17,13 +19,13 @@ async function main() {
   let watchdog: Watchdog | undefined;
 
   async function processPlayerChange(status: PlayerStatus, playerName: string, serverConnector: ServerConnector) {
-    logger.info(`${playerName} ${PlayerLogStatus[status]}`);
+    logger.info(`Main> ${playerName} ${PlayerLogStatus[status]}`);
     sendDiscordNotification(`${playerName} ${DiscordStatus[status]}`);
     await serverConnector.getGameData();
     await hassAPI.updatePlayerInfo(serverConnector.gameInfo.players);
   }
 
-  console.log('Main> Starting 7DTD Server Monitor...');
+  logger.info(`Main> Starting 7DTD Server Monitor v${version}...`);
 
   try {
     const serverConnector = new ServerConnector({
@@ -33,30 +35,39 @@ async function main() {
       apiSecret
     });
 
-    sendDiscordNotification('7DTD Server Monitor started 🚀');
+    sendDiscordNotification(`7DTD Server Monitor v${version} started 🚀`);
 
     watchdog = new Watchdog(serverConnector);
     watchdog.start();
 
     eventEmitter.on('connected', async () => {
-      console.debug('Main> Connected to server');
-      dockerConnector = new DockerConnector(containerId);
-      await dockerConnector.readLog();
+      logger.debug('Main> Connected to server');
+      if (!dockerConnector) {
+        dockerConnector = new DockerConnector(containerId);
+        await dockerConnector.readLog();
+        await serverConnector.getGameData(true);
+        await hassAPI.updatePlayerInfo(serverConnector.gameInfo.players);
+      }
+      serverConnector.startBloodmoonCheck();
     });
 
     eventEmitter.on('disconnected', async () => {
-      console.debug('Main> Disconnected from server');
+      logger.debug('Main> Disconnected from server');
       await dockerConnector?.stop();
+      serverConnector.stopBloodmoonCheck();
     });
 
     eventEmitter.on('playerJoin', async (playerName: string) => {
-      console.debug(`Main> ${playerName} joined the game`);
+      logger.debug(`Main> ${playerName} joined the game`);
       processPlayerChange(PlayerStatus.Joined, playerName, serverConnector);
     });
 
     eventEmitter.on('playerLeave', async (playerName: string) => {
-      console.debug(`Main> ${playerName} left the game`);
       processPlayerChange(PlayerStatus.Left, playerName, serverConnector);
+    });
+
+    eventEmitter.on('playerDied', async (playerName: string) => {
+      processPlayerChange(PlayerStatus.Died, playerName, serverConnector);
     });
 
     // Keep the process running
@@ -66,13 +77,13 @@ async function main() {
   } catch (error: any) {
     watchdog?.stop();
     await sendDiscordNotification('🛑 7DTD Server Monitor stopped with an error', error);
-    console.error('Main> 7DTD Server Monitor stopped with an error', error);
+    logger.error('Main> 7DTD Server Monitor stopped with an error', error);
     process.exit(1);
   }
 }
 
 main().catch(error => {
-  console.error('Main> Unhandled error in main:', error);
+  logger.error('Main> Unhandled error in main:', error);
   process.exit(1);
 });
 
